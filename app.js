@@ -1,221 +1,158 @@
 /* ============================================================
-   경상북도 영천시 의료기관 현황 – app.js
-   공공데이터포털 REST API 연동
+   실시간 날씨 현황 – app.js
+   Open-Meteo API (무료, API키 불필요)
+   Geocoding API로 도시명 → 위경도 변환
    ============================================================ */
 
-const CONFIG = {
-  endpoint: "https://apis.data.go.kr/5100000/YeongcheonMedicalfacility/getResult",
-  apiKey:   "175f573c570576a4a89ae0f7140185c50e84ea6c216d1639b82bc244f985ec9c",
-  pageSize: 20,   // 한 화면에 표시할 행 수
+// 도시명 → 위경도 매핑 (한국 주요 도시)
+const CITY_COORDS = {
+  "서울":  { lat: 37.5665, lon: 126.9780, name: "서울" },
+  "부산":  { lat: 35.1796, lon: 129.0756, name: "부산" },
+  "대구":  { lat: 35.8714, lon: 128.6014, name: "대구" },
+  "인천":  { lat: 37.4563, lon: 126.7052, name: "인천" },
+  "광주":  { lat: 35.1595, lon: 126.8526, name: "광주" },
+  "대전":  { lat: 36.3504, lon: 127.3845, name: "대전" },
+  "울산":  { lat: 35.5384, lon: 129.3114, name: "울산" },
+  "제주":  { lat: 33.4996, lon: 126.5312, name: "제주" },
+  "수원":  { lat: 37.2636, lon: 127.0286, name: "수원" },
+  "영천":  { lat: 35.9733, lon: 128.9386, name: "영천" },
+  "강릉":  { lat: 37.7519, lon: 128.8761, name: "강릉" },
+  "전주":  { lat: 35.8242, lon: 127.1480, name: "전주" },
 };
 
-/* ── 상태 ── */
-let allData    = [];   // 전체 원본 데이터
-let filtered   = [];   // 검색/필터 결과
-let currentPage = 1;
+// 날씨 코드 → 설명 + 이모지
+function getWeatherInfo(code, isDay) {
+  const d = isDay;
+  if (code === 0)              return { desc: "맑음",          icon: d ? "☀️" : "🌙" };
+  if (code <= 2)               return { desc: "구름 조금",      icon: d ? "🌤️" : "🌤️" };
+  if (code === 3)              return { desc: "흐림",           icon: "☁️" };
+  if (code <= 49)              return { desc: "안개",           icon: "🌫️" };
+  if (code <= 59)              return { desc: "이슬비",         icon: "🌦️" };
+  if (code <= 69)              return { desc: "비",             icon: "🌧️" };
+  if (code <= 79)              return { desc: "눈",             icon: "❄️" };
+  if (code <= 82)              return { desc: "소나기",         icon: "⛈️" };
+  if (code <= 99)              return { desc: "뇌우",           icon: "⛈️" };
+  return { desc: "알 수 없음", icon: "🌡️" };
+}
 
-/* ── DOM 레퍼런스 ── */
-const fetchBtn    = document.getElementById("fetch-btn");
-const searchInput = document.getElementById("search-input");
-const typeFilter  = document.getElementById("type-filter");
-const tableBody   = document.getElementById("table-body");
-const totalCount  = document.getElementById("total-count");
-const statusMsg   = document.getElementById("status-msg");
-const pagination  = document.getElementById("pagination");
+// DOM
+const cityInput       = document.getElementById("city-input");
+const searchBtn       = document.getElementById("search-btn");
+const weatherContainer= document.getElementById("weather-container");
+const statusArea      = document.getElementById("status-area");
+const statusMsg       = document.getElementById("status-msg");
+const presetBtns      = document.querySelectorAll(".preset-btn");
 
-/* ── 헬퍼: 상태 메시지 ── */
-function setStatus(msg, type = "") {
+function setStatus(msg, loading = false) {
   statusMsg.textContent = msg;
-  statusMsg.className = "stat-item status-msg " + type;
+  document.querySelector(".status-icon").textContent = loading ? "⏳" : "🌤️";
 }
 
-/* ── 헬퍼: 총 건수 표시 ── */
-function setCount(n) {
-  totalCount.innerHTML = `총 <strong>${n.toLocaleString()}</strong>건`;
+function showLoading() {
+  weatherContainer.classList.add("hidden");
+  statusArea.style.display = "block";
+  setStatus("날씨 데이터를 불러오는 중...", true);
 }
 
-/* ── API 호출 ── */
-async function fetchData() {
-  fetchBtn.disabled = true;
-  setStatus("데이터를 불러오는 중…", "loading");
-  tableBody.innerHTML = `<tr class="empty-row"><td colspan="6"><div class="empty-state"><p>⏳ API 응답 대기 중입니다…</p></div></td></tr>`;
-  pagination.innerHTML = "";
-
-  try {
-    /* 1차 호출 – numOfRows=1 로 totalCount 파악 */
-    const probeUrl = buildUrl(1, 1);
-    const probeRes = await fetch(probeUrl);
-    if (!probeRes.ok) throw new Error(`HTTP ${probeRes.status}`);
-    const probeJson = await probeRes.json();
-
-    const total = extractTotal(probeJson);
-    if (total === 0) throw new Error("데이터가 없습니다.");
-
-    /* 2차 호출 – 전체 데이터 한 번에 */
-    const fullUrl = buildUrl(1, total);
-    const fullRes = await fetch(fullUrl);
-    if (!fullRes.ok) throw new Error(`HTTP ${fullRes.status}`);
-    const fullJson = await fullRes.json();
-
-    allData = extractItems(fullJson);
-    if (allData.length === 0) throw new Error("파싱된 항목이 없습니다.");
-
-    populateTypeFilter(allData);
-    applyFilter();
-    setStatus(`✅ ${allData.length.toLocaleString()}건 로드 완료`, "success");
-  } catch (err) {
-    console.error(err);
-    setStatus(`❌ 오류: ${err.message}`, "error");
-    tableBody.innerHTML = `<tr class="empty-row"><td colspan="6"><div class="empty-state"><p>데이터를 불러오지 못했습니다: ${err.message}</p></div></td></tr>`;
-  } finally {
-    fetchBtn.disabled = false;
-  }
+function showWeather() {
+  weatherContainer.classList.remove("hidden");
+  statusArea.style.display = "none";
 }
 
-/* ── URL 생성 ── */
-function buildUrl(pageNo, numOfRows) {
-  const params = new URLSearchParams({
-    serviceKey: CONFIG.apiKey,
-    pageNo,
-    numOfRows,
-    type: "json",
-  });
-  return `${CONFIG.endpoint}?${params.toString()}`;
+function showError(msg) {
+  weatherContainer.classList.add("hidden");
+  statusArea.style.display = "block";
+  setStatus(msg);
 }
 
-/* ── JSON 구조 파싱 (공공데이터 포털 응답 구조 대응) ── */
-function extractTotal(json) {
-  try {
-    return (
-      json?.response?.body?.totalCount ||
-      json?.getResult?.body?.totalCount ||
-      json?.body?.totalCount ||
-      json?.totalCount ||
-      0
-    );
-  } catch { return 0; }
-}
-
-function extractItems(json) {
-  try {
-    const body =
-      json?.response?.body ||
-      json?.getResult?.body ||
-      json?.body ||
-      json;
-
-    const items = body?.items?.item || body?.items || [];
-    return Array.isArray(items) ? items : [items];
-  } catch { return []; }
-}
-
-/* ── 종별 필터 옵션 생성 ── */
-function populateTypeFilter(data) {
-  const types = [...new Set(data.map(d => d.종별코드명 || d.clCdNm || d.type || "").filter(Boolean))].sort();
-  typeFilter.innerHTML = `<option value="">전체 유형</option>`;
-  types.forEach(t => {
-    const opt = document.createElement("option");
-    opt.value = t;
-    opt.textContent = t;
-    typeFilter.appendChild(opt);
-  });
-}
-
-/* ── 검색 + 필터 적용 ── */
-function applyFilter() {
-  const keyword = searchInput.value.trim().toLowerCase();
-  const selectedType = typeFilter.value;
-
-  filtered = allData.filter(item => {
-    const name = (item.yadmNm || item.기관명 || item.name || "").toLowerCase();
-    const addr = (item.addr || item.주소 || item.address || "").toLowerCase();
-    const type = item.종별코드명 || item.clCdNm || item.type || "";
-
-    const matchKeyword = !keyword || name.includes(keyword) || addr.includes(keyword);
-    const matchType    = !selectedType || type === selectedType;
-    return matchKeyword && matchType;
-  });
-
-  currentPage = 1;
-  setCount(filtered.length);
-  renderTable();
-  renderPagination();
-}
-
-/* ── 테이블 렌더링 ── */
-function renderTable() {
-  if (filtered.length === 0) {
-    tableBody.innerHTML = `<tr class="empty-row"><td colspan="6"><div class="empty-state"><svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="8" y="16" width="48" height="36" rx="3" stroke="currentColor" stroke-width="2"/><path d="M22 32h20M32 22v20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><p>검색 결과가 없습니다.</p></div></td></tr>`;
+async function fetchWeather(cityKey) {
+  const city = CITY_COORDS[cityKey];
+  if (!city) {
+    showError(`"${cityKey}" 도시를 찾을 수 없어요.\n서울, 부산, 대구, 인천, 제주, 영천 등으로 검색해보세요.`);
     return;
   }
 
-  const start = (currentPage - 1) * CONFIG.pageSize;
-  const end   = start + CONFIG.pageSize;
-  const pageItems = filtered.slice(start, end);
+  showLoading();
 
-  tableBody.innerHTML = pageItems.map((item, idx) => {
-    const num      = start + idx + 1;
-    const name     = item.yadmNm   || item.기관명   || item.name     || "—";
-    const typeName = item.clCdNm   || item.종별코드명 || item.type     || "—";
-    const addr     = item.addr     || item.주소     || item.address  || "—";
-    const tel      = item.telno    || item.전화번호   || item.tel      || "—";
-    const dept     = item.dgsbjtCdNm || item.진료과목  || item.dept    || "—";
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?` +
+      `latitude=${city.lat}&longitude=${city.lon}` +
+      `&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,cloud_cover,wind_speed_10m,visibility,is_day` +
+      `&hourly=temperature_2m,weather_code` +
+      `&timezone=Asia%2FSeoul` +
+      `&forecast_days=1`;
 
-    return `
-      <tr style="animation-delay:${(idx * 0.03).toFixed(2)}s">
-        <td>${num}</td>
-        <td><strong>${escHtml(name)}</strong></td>
-        <td><span class="badge">${escHtml(typeName)}</span></td>
-        <td>${escHtml(addr)}</td>
-        <td style="font-family:var(--mono);font-size:0.8rem">${escHtml(tel)}</td>
-        <td>${escHtml(dept)}</td>
-      </tr>`;
-  }).join("");
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("API 응답 오류");
+    const data = await res.json();
+
+    renderWeather(data, city.name);
+    showWeather();
+  } catch (err) {
+    showError("날씨 데이터를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
+    console.error(err);
+  }
 }
 
-/* ── 페이지네이션 렌더링 ── */
-function renderPagination() {
-  const totalPages = Math.ceil(filtered.length / CONFIG.pageSize);
-  if (totalPages <= 1) { pagination.innerHTML = ""; return; }
+function renderWeather(data, cityName) {
+  const c = data.current;
+  const isDay = c.is_day === 1;
+  const wInfo = getWeatherInfo(c.weather_code, isDay);
 
-  const range = paginate(currentPage, totalPages);
+  document.getElementById("city-name").textContent    = cityName;
+  document.getElementById("weather-icon").textContent = wInfo.icon;
+  document.getElementById("temp-big").textContent     = `${Math.round(c.temperature_2m)}°C`;
+  document.getElementById("weather-desc").textContent = wInfo.desc;
+  document.getElementById("updated-time").textContent = `업데이트: ${new Date().toLocaleString("ko-KR")}`;
 
-  pagination.innerHTML = range.map(p => {
-    if (p === "…") return `<span class="page-btn" style="cursor:default;opacity:.4">…</span>`;
-    return `<button class="page-btn${p === currentPage ? " active" : ""}" data-page="${p}">${p}</button>`;
-  }).join("");
+  document.getElementById("humidity").textContent   = `${c.relative_humidity_2m}%`;
+  document.getElementById("wind").textContent       = `${c.wind_speed_10m} km/h`;
+  document.getElementById("feels-like").textContent = `${Math.round(c.apparent_temperature)}°C`;
+  document.getElementById("cloud").textContent      = `${c.cloud_cover}%`;
+  document.getElementById("rain").textContent       = `${c.precipitation} mm`;
+  document.getElementById("visibility").textContent = c.visibility >= 1000
+    ? `${(c.visibility / 1000).toFixed(1)} km`
+    : `${c.visibility} m`;
 
-  pagination.querySelectorAll("button[data-page]").forEach(btn => {
-    btn.addEventListener("click", () => {
-      currentPage = parseInt(btn.dataset.page);
-      renderTable();
-      renderPagination();
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    });
+  // 시간별 예보
+  const hourlyList = document.getElementById("hourly-list");
+  const times = data.hourly.time;
+  const temps = data.hourly.temperature_2m;
+  const codes = data.hourly.weather_code;
+  const now   = new Date();
+
+  hourlyList.innerHTML = "";
+  let count = 0;
+  for (let i = 0; i < times.length && count < 12; i++) {
+    const t = new Date(times[i]);
+    if (t < now) continue;
+    count++;
+    const hw = getWeatherInfo(codes[i], t.getHours() >= 6 && t.getHours() < 20);
+    const div = document.createElement("div");
+    div.className = "hourly-item";
+    div.innerHTML = `
+      <div class="h-time">${t.getHours()}시</div>
+      <div class="h-icon">${hw.icon}</div>
+      <div class="h-temp">${Math.round(temps[i])}°</div>
+    `;
+    hourlyList.appendChild(div);
+  }
+}
+
+function search() {
+  const val = cityInput.value.trim();
+  if (!val) return;
+  fetchWeather(val);
+}
+
+searchBtn.addEventListener("click", search);
+cityInput.addEventListener("keydown", e => { if (e.key === "Enter") search(); });
+presetBtns.forEach(btn => {
+  btn.addEventListener("click", () => {
+    cityInput.value = btn.dataset.city;
+    fetchWeather(btn.dataset.city);
   });
-}
+});
 
-/* ── 페이지 번호 범위 계산 ── */
-function paginate(cur, total) {
-  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
-  if (cur <= 4) return [1, 2, 3, 4, 5, "…", total];
-  if (cur >= total - 3) return [1, "…", total-4, total-3, total-2, total-1, total];
-  return [1, "…", cur-1, cur, cur+1, "…", total];
-}
-
-/* ── HTML 이스케이프 ── */
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-/* ── 이벤트 바인딩 ── */
-fetchBtn.addEventListener("click", fetchData);
-searchInput.addEventListener("input", applyFilter);
-typeFilter.addEventListener("change", applyFilter);
-
-/* ── 초기화 ── */
-setCount(0);
+// 처음에 서울 날씨 자동 로드
+fetchWeather("서울");
