@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>경상북도 영천시 의료기관 현황</title>
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- ── 헤더 ── -->
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="student-info">
+        <span class="label">학번</span>
+        <span class="value" id="student-id">2024XXXXXXX</span>
+        <span class="sep">·</span>
+        <span class="label">이름</span>
+        <span class="value" id="student-name">홍길동</span>
+      </div>
+      <div class="site-title">
+        <h1>경상북도 영천시<br /><em>의료기관 현황</em></h1>
+        <p class="subtitle">Yeongcheon City Medical Facility Directory</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── 컨트롤 바 ── -->
+  <section class="control-bar">
+    <div class="control-inner">
+      <input
+        type="text"
+        id="search-input"
+        class="search-input"
+        placeholder="기관명 또는 주소 검색..."
+      />
+      <select id="type-filter" class="filter-select">
+        <option value="">전체 유형</option>
+      </select>
+      <button id="fetch-btn" class="fetch-btn">데이터 불러오기</button>
+    </div>
+    <div class="stat-bar">
+      <span id="total-count" class="stat-item">총 <strong>0</strong>건</span>
+      <span id="status-msg" class="stat-item status-msg">API 응답 대기 중</span>
+    </div>
+  </section>
+
+  <!-- ── 테이블 영역 ── -->
+  <main class="main-content">
+    <div class="table-wrapper">
+      <table id="data-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>기관명</th>
+            <th>종별</th>
+            <th>주소</th>
+            <th>전화번호</th>
+            <th>진료과목</th>
+          </tr>
+        </thead>
+        <tbody id="table-body">
+          <tr class="empty-row">
+            <td colspan="6">
+              <div class="empty-state">
+                <svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="8" y="16" width="48" height="36" rx="3" stroke="currentColor" stroke-width="2"/>
+                  <path d="M22 32h20M32 22v20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                <p>위 버튼을 눌러 의료기관 데이터를 불러오세요.</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 페이지네이션 -->
+    <div id="pagination" class="pagination"></div>
+  </main>
+
+  <!-- ── 푸터 ── -->
+  <footer class="site-footer">
+    <p>데이터 출처: <a href="https://www.data.go.kr" target="_blank">공공데이터포털</a> · 경상북도 영천시_의료기관현황</p>
+    <p class="footer-copy">© 2026 학번: <span id="footer-id">2024XXXXXXX</span> / <span id="footer-name">홍길동</span></p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
